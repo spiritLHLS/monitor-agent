@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package spiders;
+
+option go_package = ".;proto";
+
+service SpiderService {
+  rpc GetTask(TaskRequest) returns (CrawlerTask) {}
+  rpc HandleTask(CrawlerResult) returns (HandleResponse) {}
+  rpc ControlSpiders(ControlRequest) returns (ControlResponse) {}
+  rpc GetSpidersStatus(StatusRequest) returns (StatusResponse) {}
+}
+
+message TaskRequest {
+  string token = 1;
+}
+
+message CrawlerTask {
+  string token = 1;
+  string tag = 2;
+  string url = 3;
+  string billing_type = 4;
+  int32 crawl_num = 5;
+  string extra_header = 6;
+  string req_method = 7;
+}
+
+message CrawlerResult {
+  string token = 1;
+  string tag = 2;
+  string url = 3;
+  string billing_type = 4;
+  int32 crawl_num = 5;
+  int32 runtime = 6;
+  string start_time = 7;
+  bool success = 8;
+  string req_method = 9;
+  string web_data = 10;
+}
+
+message HandleResponse {
+  string message = 1;
+  bool success = 2;
+}
+
+message ControlRequest {
+  string token = 1;
+  bool enable_spiders = 2;
+}
+
+message ControlResponse {
+  bool status = 1;
+  string message = 2;
+}
+
+message StatusRequest {
+  string token = 1;
+}
+
+message StatusResponse {
+  bool status = 1;
+  string message = 2;
+}
