@@ -1,9 +1,9 @@
-# ecs_agent
+# monitor-agent
 
 守护进程
 
 ```
-curl -L https://raw.githubusercontent.com/spiritLHLS/ecs_agent/main/ecsagent.sh -o ecsagent.sh && chmod +x ecsagent.sh && bash ecsagent.sh
+curl -L https://raw.githubusercontent.com/spiritLHLS/monitor-agent/main/ecsagent.sh -o ecsagent.sh && chmod +x ecsagent.sh && bash ecsagent.sh
 ```
 
 ```
@@ -20,7 +20,7 @@ systemctl remove ecsagent.service
 
 ```
 rm -rf ecsagent
-wget https://raw.githubusercontent.com/spiritLHLS/ecs_agent/main/ecsagent
+wget https://raw.githubusercontent.com/spiritLHLS/monitor-agent/main/ecsagent
 chmod 777 ecsagent
 ls
 ```
