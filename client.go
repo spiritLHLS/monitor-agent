@@ -2,17 +2,13 @@ package main
 
 import (
 	pb "agent/proto"
-	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/parnurzeal/gorequest"
+	"github.com/imroc/req/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"io"
 	"log"
-	"net/http"
 	"sync"
 	"time"
 )
@@ -34,6 +30,7 @@ type SpiderClient struct {
 	currentMode string
 	modeMutex   sync.RWMutex
 	lastError   time.Time
+	httpClient  *req.Client
 }
 
 // TaskFromData API 模式的任务响应结构
@@ -74,7 +71,11 @@ func NewSpiderClient(token, host, grpcPort, apiPort string) (*SpiderClient, erro
 		grpcPort:    grpcPort,
 		apiPort:     apiPort,
 		currentMode: modeGRPC,
+		httpClient:  req.C(),
 	}
+	client.httpClient.SetCommonHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9")
+	client.httpClient.ImpersonateChrome()
+	client.httpClient.SetTimeout(10 * time.Second)
 	// 初始化 gRPC 客户端
 	if err := client.initGRPCClient(); err != nil {
 		log.Printf("gRPC 客户端初始化失败: %v, 将使用 API 模式", err)
@@ -161,25 +162,18 @@ func (c *SpiderClient) getTaskGRPC() (*pb.CrawlerTask, error) {
 // getTaskAPI 通过 API 获取任务
 func (c *SpiderClient) getTaskAPI() (*pb.CrawlerTask, error) {
 	url := fmt.Sprintf("http://%s:%s/spiders/getonetask", c.host, c.apiPort)
-	data := map[string]string{"token": c.token}
-	jsonData, err := json.Marshal(data)
+	resp, err := c.httpClient.R().
+		SetBody(map[string]string{"token": c.token}).
+		SetHeader("Content-Type", "application/json").
+		Post(url)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if !resp.IsSuccessState() {
 		return nil, fmt.Errorf("HTTP请求失败，状态码: %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
 	var taskData TaskFromData
-	if err := json.Unmarshal(body, &taskData); err != nil {
+	if err := resp.UnmarshalJson(&taskData); err != nil {
 		return nil, err
 	}
 	return &pb.CrawlerTask{
@@ -196,18 +190,22 @@ func (c *SpiderClient) getTaskAPI() (*pb.CrawlerTask, error) {
 // fetchWebData 获取网页数据
 func (c *SpiderClient) fetchWebData(url string) (string, bool) {
 	startTime := time.Now()
-	request := gorequest.New()
-	req := request.Get(url).Retry(3, 6*time.Second, http.StatusBadRequest, http.StatusInternalServerError)
-	req.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36")
-	req.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9")
-	_, body, errs := req.End()
-	if len(errs) > 0 {
-		log.Printf("获取页面数据失败: %v, URL: %s", errs, url)
+	// 设置重试策略
+	resp, err := c.httpClient.R().
+		SetRetryCount(2).
+		SetRetryBackoffInterval(1*time.Second, 5*time.Second).
+		SetRetryFixedInterval(2 * time.Second).
+		Get(url)
+	if err != nil {
+		log.Printf("获取页面数据失败: %v, URL: %s", err, url)
 		return "", false
 	}
-
+	if !resp.IsSuccessState() {
+		log.Printf("获取页面失败，状态码: %d, URL: %s", resp.StatusCode, url)
+		return "", false
+	}
 	log.Printf("获取页面成功 - URL: %s, 耗时: %v", url, time.Since(startTime))
-	return body, true
+	return resp.String(), true
 }
 
 // HandleTask 处理任务
@@ -275,24 +273,18 @@ func (c *SpiderClient) handleTaskAPI(task *pb.CrawlerTask, webData string, succe
 		ReqMethod:   task.ReqMethod,
 		WebData:     webData,
 	}
-	jsonData, err := json.Marshal(result)
-	if err != nil {
-		return fmt.Errorf("JSON编码失败: %v", err)
-	}
 	url := fmt.Sprintf("http://%s:%s/spiders/handletask", c.host, c.apiPort)
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	resp, err := c.httpClient.R().
+		SetBody(result).
+		SetHeader("Content-Type", "application/json").
+		Post(url)
 	if err != nil {
 		return fmt.Errorf("发送请求失败: %v", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	if !resp.IsSuccessState() {
 		return fmt.Errorf("HTTP请求失败，状态码: %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("读取响应失败: %v", err)
-	}
-	log.Printf("API任务处理结果: %s", string(body))
+	log.Printf("API任务处理结果: %s", resp.String())
 	return nil
 }
 
