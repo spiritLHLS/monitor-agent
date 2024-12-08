@@ -30,6 +30,7 @@ type SpiderClient struct {
 	currentMode string
 	modeMutex   sync.RWMutex
 	lastError   time.Time
+	lastSuccess time.Time
 	httpClient  *req.Client
 }
 
@@ -72,6 +73,7 @@ func NewSpiderClient(token, host, grpcPort, apiPort string) (*SpiderClient, erro
 		apiPort:     apiPort,
 		currentMode: modeGRPC,
 		httpClient:  req.C(),
+		lastSuccess: time.Now(), // 初始化最后成功时间
 	}
 	client.httpClient.SetCommonHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9")
 	client.httpClient.ImpersonateChrome()
@@ -103,6 +105,9 @@ func (c *SpiderClient) setMode(mode string) {
 	c.modeMutex.Lock()
 	defer c.modeMutex.Unlock()
 	c.currentMode = mode
+	if mode == modeAPI {
+		c.lastSuccess = time.Now() // 切换到API模式时重置成功时间
+	}
 	c.lastError = time.Now()
 }
 
@@ -111,6 +116,30 @@ func (c *SpiderClient) getMode() string {
 	c.modeMutex.RLock()
 	defer c.modeMutex.RUnlock()
 	return c.currentMode
+}
+
+// updateLastSuccess 更新最后一次成功的时间
+func (c *SpiderClient) updateLastSuccess() {
+	c.modeMutex.Lock()
+	defer c.modeMutex.Unlock()
+	c.lastSuccess = time.Now()
+}
+
+// checkAndSwitchToGRPC 检查是否需要切换回gRPC模式
+func (c *SpiderClient) checkAndSwitchToGRPC() {
+	if c.getMode() == modeAPI {
+		c.modeMutex.RLock()
+		stableTime := time.Since(c.lastSuccess)
+		c.modeMutex.RUnlock()
+
+		if stableTime >= 5*time.Minute {
+			// 尝试切换回gRPC模式
+			if err := c.initGRPCClient(); err == nil {
+				c.setMode(modeGRPC)
+				log.Printf("API模式稳定运行5分钟，成功切换回gRPC模式")
+			}
+		}
+	}
 }
 
 // switchMode 切换模式
@@ -138,6 +167,10 @@ func (c *SpiderClient) GetTask() (*pb.CrawlerTask, error) {
 		task, err = c.getTaskGRPC()
 	} else {
 		task, err = c.getTaskAPI()
+		if err == nil {
+			c.updateLastSuccess()    // 更新API模式下的成功时间
+			c.checkAndSwitchToGRPC() // 检查是否可以切换回gRPC模式
+		}
 	}
 	if err != nil {
 		log.Printf("%s 模式获取任务失败: %v", mode, err)
@@ -228,6 +261,10 @@ func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
 		err = c.handleTaskGRPC(task, webData, success, runtime, formattedTime)
 	} else {
 		err = c.handleTaskAPI(task, webData, success, runtime, formattedTime)
+		if err == nil {
+			c.updateLastSuccess()    // 更新API模式下的成功时间
+			c.checkAndSwitchToGRPC() // 检查是否可以切换回gRPC模式
+		}
 	}
 	if err != nil {
 		log.Printf("%s 模式处理任务失败: %v", mode, err)
