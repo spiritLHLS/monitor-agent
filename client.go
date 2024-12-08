@@ -96,7 +96,6 @@ func (c *SpiderClient) initGRPCClient() error {
 		return fmt.Errorf("无法连接到gRPC服务器: %v", err)
 	}
 	c.grpcClient = pb.NewSpiderServiceClient(conn)
-	c.ctx, c.cancel = context.WithTimeout(context.Background(), 30*time.Second)
 	return nil
 }
 
@@ -131,7 +130,6 @@ func (c *SpiderClient) checkAndSwitchToGRPC() {
 		c.modeMutex.RLock()
 		stableTime := time.Since(c.lastSuccess)
 		c.modeMutex.RUnlock()
-
 		if stableTime >= 5*time.Minute {
 			// 尝试切换回gRPC模式
 			if err := c.initGRPCClient(); err == nil {
@@ -182,10 +180,12 @@ func (c *SpiderClient) GetTask() (*pb.CrawlerTask, error) {
 
 // getTaskGRPC 通过 gRPC 获取任务
 func (c *SpiderClient) getTaskGRPC() (*pb.CrawlerTask, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	request := &pb.TaskRequest{
 		Token: c.token,
 	}
-	response, err := c.grpcClient.GetTask(c.ctx, request)
+	response, err := c.grpcClient.GetTask(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("gRPC获取任务失败: %v", err)
 	}
@@ -276,6 +276,8 @@ func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
 
 // handleTaskGRPC 通过 gRPC 处理任务
 func (c *SpiderClient) handleTaskGRPC(task *pb.CrawlerTask, webData string, success bool, runtime int32, startTime string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	result := &pb.CrawlerResult{
 		Token:       c.token,
 		Tag:         task.Tag,
@@ -288,7 +290,7 @@ func (c *SpiderClient) handleTaskGRPC(task *pb.CrawlerTask, webData string, succ
 		ReqMethod:   task.ReqMethod,
 		WebData:     webData,
 	}
-	response, err := c.grpcClient.HandleTask(c.ctx, result)
+	response, err := c.grpcClient.HandleTask(ctx, result)
 	if err != nil {
 		return fmt.Errorf("gRPC处理任务失败: %v", err)
 	}
