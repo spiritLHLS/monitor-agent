@@ -38,8 +38,8 @@ done
 [ -z $port ] && reading "主控API端口：" port
 rm -rf /usr/local/bin/ecsagent
 rm -rf /etc/systemd/system/ecsagent.service
-curl -s https://raw.githubusercontent.com/spiritLHLS/ecs_agent/main/ecsagent -o /usr/local/bin/ecsagent
-curl -s https://raw.githubusercontent.com/spiritLHLS/ecs_agent/main/ecsagent.service -o /etc/systemd/system/ecsagent.service
+curl -s https://raw.githubusercontent.com/spiritLHLS/monitor-agent/main/ecsagent -o /usr/local/bin/ecsagent
+curl -s https://raw.githubusercontent.com/spiritLHLS/monitor-agent/main/ecsagent.service -o /etc/systemd/system/ecsagent.service
 chmod +x /usr/local/bin/ecsagent
 chmod +x /etc/systemd/system/ecsagent.service
 if [ -f "/etc/systemd/system/ecsagent.service" ]; then
