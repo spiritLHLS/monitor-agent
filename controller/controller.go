@@ -1,4 +1,4 @@
-package main
+package controller
 
 import (
 	pb "agent/proto"
@@ -12,20 +12,25 @@ import (
 	"time"
 )
 
+const (
+	modeGRPC = "grpc"
+	modeAPI  = "api"
+)
+
 // 与主控通信的客户端结构体
 type ControllerClient struct {
-	token       string
-	host        string
-	grpcPort    string
-	apiPort     string
-	grpcClient  pb.SpiderServiceClient
-	ctx         context.Context
-	cancel      context.CancelFunc
-	currentMode string
-	modeMutex   sync.RWMutex
-	lastError   time.Time
-	lastSuccess time.Time
-	httpClient  *req.Client
+	Token       string
+	Host        string
+	GrpcPort    string
+	ApiPort     string
+	GrpcClient  pb.SpiderServiceClient
+	Ctx         context.Context
+	Cancel      context.CancelFunc
+	CurrentMode string
+	ModeMutex   sync.RWMutex
+	LastError   time.Time
+	LastSuccess time.Time
+	HttpClient  *req.Client
 }
 
 // TaskFromData API 模式的任务响应结构
@@ -61,79 +66,79 @@ type CrawlerResult struct {
 // NewControllerClient 创建主控客户端
 func NewControllerClient(token, host, grpcPort, apiPort string) (*ControllerClient, error) {
 	client := &ControllerClient{
-		token:       token,
-		host:        host,
-		grpcPort:    grpcPort,
-		apiPort:     apiPort,
-		currentMode: modeGRPC,
-		httpClient:  req.C().SetTimeout(10 * time.Second),
-		lastSuccess: time.Now(),
+		Token:       token,
+		Host:        host,
+		GrpcPort:    grpcPort,
+		ApiPort:     apiPort,
+		CurrentMode: modeGRPC,
+		HttpClient:  req.C().SetTimeout(10 * time.Second),
+		LastSuccess: time.Now(),
 	}
 	// 初始化 gRPC 客户端
-	if err := client.initGRPCClient(); err != nil {
+	if err := client.InitGRPCClient(); err != nil {
 		log.Printf("gRPC 客户端初始化失败: %v, 将使用 API 模式", err)
-		client.setMode(modeAPI)
+		client.SetMode(modeAPI)
 	}
 	return client, nil
 }
 
-// initGRPCClient 初始化 gRPC 客户端
-func (c *ControllerClient) initGRPCClient() error {
-	conn, err := grpc.Dial(
-		fmt.Sprintf("%s:%s", c.host, c.grpcPort),
+// InitGRPCClient 初始化 gRPC 客户端
+func (c *ControllerClient) InitGRPCClient() error {
+	conn, err := grpc.NewClient(
+		fmt.Sprintf("%s:%s", c.Host, c.GrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	if err != nil {
 		return fmt.Errorf("无法连接到gRPC服务器: %v", err)
 	}
-	c.grpcClient = pb.NewSpiderServiceClient(conn)
+	c.GrpcClient = pb.NewSpiderServiceClient(conn)
 	return nil
 }
 
-// setMode 设置当前模式
-func (c *ControllerClient) setMode(mode string) {
-	c.modeMutex.Lock()
-	defer c.modeMutex.Unlock()
-	c.currentMode = mode
+// SetMode 设置当前模式
+func (c *ControllerClient) SetMode(mode string) {
+	c.ModeMutex.Lock()
+	defer c.ModeMutex.Unlock()
+	c.CurrentMode = mode
 	if mode == modeAPI {
-		c.lastSuccess = time.Now()
+		c.LastSuccess = time.Now()
 	}
-	c.lastError = time.Now()
+	c.LastError = time.Now()
 }
 
-// getMode 获取当前模式
-func (c *ControllerClient) getMode() string {
-	c.modeMutex.RLock()
-	defer c.modeMutex.RUnlock()
-	return c.currentMode
+// GetMode 获取当前模式
+func (c *ControllerClient) GetMode() string {
+	c.ModeMutex.RLock()
+	defer c.ModeMutex.RUnlock()
+	return c.CurrentMode
 }
 
-// updateLastSuccess 更新最后一次成功的时间
-func (c *ControllerClient) updateLastSuccess() {
-	c.modeMutex.Lock()
-	defer c.modeMutex.Unlock()
-	c.lastSuccess = time.Now()
+// UpdateLastSuccess 更新最后一次成功的时间
+func (c *ControllerClient) UpdateLastSuccess() {
+	c.ModeMutex.Lock()
+	defer c.ModeMutex.Unlock()
+	c.LastSuccess = time.Now()
 }
 
-// getTaskGRPC 通过 gRPC 获取任务
-func (c *ControllerClient) getTaskGRPC() (*pb.CrawlerTask, error) {
+// GetTaskGRPC 通过 gRPC 获取任务
+func (c *ControllerClient) GetTaskGRPC() (*pb.CrawlerTask, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	request := &pb.TaskRequest{
-		Token: c.token,
+		Token: c.Token,
 	}
-	response, err := c.grpcClient.GetTask(ctx, request)
+	response, err := c.GrpcClient.GetTask(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("gRPC获取任务失败: %v", err)
 	}
 	return response, nil
 }
 
-// getTaskAPI 通过 API 获取任务
-func (c *ControllerClient) getTaskAPI() (*pb.CrawlerTask, error) {
-	url := fmt.Sprintf("http://%s:%s/spiders/getonetask", c.host, c.apiPort)
-	resp, err := c.httpClient.R().
-		SetBody(map[string]string{"token": c.token}).
+// GetTaskAPI 通过 API 获取任务
+func (c *ControllerClient) GetTaskAPI() (*pb.CrawlerTask, error) {
+	url := fmt.Sprintf("http://%s:%s/spiders/getonetask", c.Host, c.ApiPort)
+	resp, err := c.HttpClient.R().
+		SetBody(map[string]string{"token": c.Token}).
 		SetHeader("Content-Type", "application/json").
 		Post(url)
 	if err != nil {
@@ -157,12 +162,12 @@ func (c *ControllerClient) getTaskAPI() (*pb.CrawlerTask, error) {
 	}, nil
 }
 
-// handleTaskGRPC 通过 gRPC 处理任务
-func (c *ControllerClient) handleTaskGRPC(task *pb.CrawlerTask, webData string, success bool, runtime int32, startTime string) error {
+// HandleTaskGRPC 通过 gRPC 处理任务
+func (c *ControllerClient) HandleTaskGRPC(task *pb.CrawlerTask, webData string, success bool, runtime int32, startTime string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	result := &pb.CrawlerResult{
-		Token:       c.token,
+		Token:       c.Token,
 		Tag:         task.Tag,
 		Url:         task.Url,
 		BillingType: task.BillingType,
@@ -173,7 +178,7 @@ func (c *ControllerClient) handleTaskGRPC(task *pb.CrawlerTask, webData string, 
 		ReqMethod:   task.ReqMethod,
 		WebData:     webData,
 	}
-	response, err := c.grpcClient.HandleTask(ctx, result)
+	response, err := c.GrpcClient.HandleTask(ctx, result)
 	if err != nil {
 		return fmt.Errorf("gRPC处理任务失败: %v", err)
 	}
@@ -181,10 +186,10 @@ func (c *ControllerClient) handleTaskGRPC(task *pb.CrawlerTask, webData string, 
 	return nil
 }
 
-// handleTaskAPI 通过 API 处理任务
-func (c *ControllerClient) handleTaskAPI(task *pb.CrawlerTask, webData string, success bool, runtime int32, startTime string) error {
+// HandleTaskAPI 通过 API 处理任务
+func (c *ControllerClient) HandleTaskAPI(task *pb.CrawlerTask, webData string, success bool, runtime int32, startTime string) error {
 	result := CrawlerResult{
-		Token:       c.token,
+		Token:       c.Token,
 		Tag:         task.Tag,
 		URL:         task.Url,
 		BillingType: task.BillingType,
@@ -195,8 +200,8 @@ func (c *ControllerClient) handleTaskAPI(task *pb.CrawlerTask, webData string, s
 		ReqMethod:   task.ReqMethod,
 		WebData:     webData,
 	}
-	url := fmt.Sprintf("http://%s:%s/spiders/handletask", c.host, c.apiPort)
-	resp, err := c.httpClient.R().
+	url := fmt.Sprintf("http://%s:%s/spiders/handletask", c.Host, c.ApiPort)
+	resp, err := c.HttpClient.R().
 		SetBody(result).
 		SetHeader("Content-Type", "application/json").
 		Post(url)

@@ -1,7 +1,8 @@
-// main.go - 主逻辑文件
 package main
 
 import (
+	"agent/controller"
+	"agent/crawler"
 	pb "agent/proto"
 	"flag"
 	"fmt"
@@ -15,17 +16,17 @@ const (
 )
 
 type SpiderClient struct {
-	controller *ControllerClient
-	crawler    *Crawler
+	controller *controller.ControllerClient
+	crawler    *crawler.Crawler
 }
 
 // NewSpiderClient 创建新的客户端实例
 func NewSpiderClient(token, host, grpcPort, apiPort, cfServiceURL string, useCF bool) (*SpiderClient, error) {
-	controller, err := NewControllerClient(token, host, grpcPort, apiPort)
+	controller, err := controller.NewControllerClient(token, host, grpcPort, apiPort)
 	if err != nil {
 		return nil, err
 	}
-	crawler := NewCrawler(cfServiceURL, useCF) // 修改函数调用
+	crawler := crawler.NewCrawler(cfServiceURL, useCF) // 修改函数调用
 	return &SpiderClient{
 		controller: controller,
 		crawler:    crawler,
@@ -34,15 +35,15 @@ func NewSpiderClient(token, host, grpcPort, apiPort, cfServiceURL string, useCF 
 
 // GetTask 获取任务
 func (c *SpiderClient) GetTask() (*pb.CrawlerTask, error) {
-	mode := c.controller.getMode()
+	mode := c.controller.GetMode()
 	var task *pb.CrawlerTask
 	var err error
 	if mode == modeGRPC {
-		task, err = c.controller.getTaskGRPC()
+		task, err = c.controller.GetTaskGRPC()
 	} else {
-		task, err = c.controller.getTaskAPI()
+		task, err = c.controller.GetTaskAPI()
 		if err == nil {
-			c.controller.updateLastSuccess()
+			c.controller.UpdateLastSuccess()
 			c.checkAndSwitchToGRPC()
 		}
 	}
@@ -56,7 +57,7 @@ func (c *SpiderClient) GetTask() (*pb.CrawlerTask, error) {
 
 // HandleTask 处理任务
 func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
-	if task.Token != c.controller.token {
+	if task.Token != c.controller.Token {
 		return fmt.Errorf("无效的Token")
 	}
 	if task.Url == "" || task.Tag == "" {
@@ -68,14 +69,14 @@ func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	beijingTime := time.Now().In(loc)
 	formattedTime := beijingTime.Format("2006-01-02 15:04:05")
-	mode := c.controller.getMode()
+	mode := c.controller.GetMode()
 	var err error
 	if mode == modeGRPC {
-		err = c.controller.handleTaskGRPC(task, webData, success, runtime, formattedTime)
+		err = c.controller.HandleTaskGRPC(task, webData, success, runtime, formattedTime)
 	} else {
-		err = c.controller.handleTaskAPI(task, webData, success, runtime, formattedTime)
+		err = c.controller.HandleTaskAPI(task, webData, success, runtime, formattedTime)
 		if err == nil {
-			c.controller.updateLastSuccess()
+			c.controller.UpdateLastSuccess()
 			c.checkAndSwitchToGRPC()
 		}
 	}
@@ -89,14 +90,14 @@ func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
 
 // checkAndSwitchToGRPC 检查是否需要切换回gRPC模式
 func (c *SpiderClient) checkAndSwitchToGRPC() {
-	if c.controller.getMode() == modeAPI {
-		c.controller.modeMutex.RLock()
-		stableTime := time.Since(c.controller.lastSuccess)
-		c.controller.modeMutex.RUnlock()
+	if c.controller.GetMode() == modeAPI {
+		c.controller.ModeMutex.RLock()
+		stableTime := time.Since(c.controller.LastSuccess)
+		c.controller.ModeMutex.RUnlock()
 
 		if stableTime >= 5*time.Minute {
-			if err := c.controller.initGRPCClient(); err == nil {
-				c.controller.setMode(modeGRPC)
+			if err := c.controller.InitGRPCClient(); err == nil {
+				c.controller.SetMode(modeGRPC)
 				log.Printf("API模式稳定运行5分钟，成功切换回gRPC模式")
 			}
 		}
@@ -105,17 +106,17 @@ func (c *SpiderClient) checkAndSwitchToGRPC() {
 
 // switchMode 切换模式
 func (c *SpiderClient) switchMode() {
-	currentMode := c.controller.getMode()
+	currentMode := c.controller.GetMode()
 	if currentMode == modeGRPC {
-		c.controller.setMode(modeAPI)
+		c.controller.SetMode(modeAPI)
 	} else {
-		if err := c.controller.initGRPCClient(); err != nil {
+		if err := c.controller.InitGRPCClient(); err != nil {
 			log.Printf("gRPC 客户端重新初始化失败: %v", err)
 			return
 		}
-		c.controller.setMode(modeGRPC)
+		c.controller.SetMode(modeGRPC)
 	}
-	log.Printf("切换到 %s 模式", c.controller.getMode())
+	log.Printf("切换到 %s 模式", c.controller.GetMode())
 }
 
 func main() {

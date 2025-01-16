@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 2024.12.08
+# 2025.01.16
 
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
@@ -75,3 +75,12 @@ fi
 systemctl daemon-reload
 systemctl start ecsagent.service
 systemctl enable ecsagent.service
+
+# 使用默认设置（启用 CF 服务）
+#./ecsagent.sh -token xxx -host xxx -grpc-port xxx -api-port xxx
+
+# 禁用 CF 服务
+#./ecsagent.sh -token xxx -host xxx -grpc-port xxx -api-port xxx -use-cf false
+
+# 指定自定义 CF 服务地址
+#./ecsagent.sh -token xxx -host xxx -grpc-port xxx -api-port xxx -cf-service http://custom-server:8000
