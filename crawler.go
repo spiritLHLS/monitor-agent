@@ -35,21 +35,25 @@ type Crawler struct {
 	cacheMutex   sync.RWMutex
 	cacheExpiry  time.Duration
 	userAgent    string
+	useCF        bool
 }
 
 // NewCrawler 创建新的爬虫客户端
-func NewCrawler(cfServiceURL string) *Crawler {
+func NewCrawler(cfServiceURL string, useCF bool) *Crawler {
 	crawler := &Crawler{
 		cfServiceURL: cfServiceURL,
 		cookieCache:  make(map[string]*CFCacheEntry),
 		cacheExpiry:  2 * time.Hour,
 		httpClient:   req.C(),
+		useCF:        useCF,
 	}
 	crawler.httpClient.SetCommonHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9")
 	crawler.httpClient.SetTimeout(10 * time.Second)
 	crawler.httpClient.ImpersonateChrome()
 	crawler.userAgent = crawler.httpClient.Headers.Get("User-Agent")
-	go crawler.startCacheCleaner()
+	if useCF {
+		go crawler.startCacheCleaner()
+	}
 	return crawler
 }
 
@@ -123,7 +127,6 @@ func (c *Crawler) getCFCookies(urlStr string) ([]CFCookie, error) {
 		CreatedAt: time.Now(),
 	}
 	c.cacheMutex.Unlock()
-
 	return response.Cookies, nil
 }
 
@@ -152,25 +155,27 @@ func (c *Crawler) FetchWebData(url string) (string, bool) {
 	client := c.httpClient.Clone()
 	startTime := time.Now()
 	// 首先尝试使用缓存的 cookies
-	cookies, err := c.getCFCookies(url)
-	if err == nil && cookies != nil {
-		for _, cookie := range cookies {
-			client.SetCommonCookies(&http.Cookie{
-				Name:  cookie.Name,
-				Value: cookie.Value,
-			})
+	if c.useCF {
+		cookies, err := c.getCFCookies(url)
+		if err == nil && cookies != nil {
+			for _, cookie := range cookies {
+				client.SetCommonCookies(&http.Cookie{
+					Name:  cookie.Name,
+					Value: cookie.Value,
+				})
+			}
 		}
 	}
 	// 第一次请求
 	resp, err := client.R().Get(url)
 	// 检查是否需要处理 CloudFlare 验证
-	if err != nil || c.isCloudFlareChallenge(resp) {
+	if c.useCF && (err != nil || c.isCloudFlareChallenge(resp)) {
 		log.Printf("检测到 CloudFlare 验证或请求失败，正在获取新的 cookies...")
 		// 强制获取新的 CF cookies
 		c.cacheMutex.Lock()
 		delete(c.cookieCache, c.getCacheKey(c.getDomain(url), c.userAgent))
 		c.cacheMutex.Unlock()
-		cookies, err = c.getCFCookies(url)
+		cookies, err := c.getCFCookies(url)
 		if err != nil {
 			log.Printf("获取 CF cookies 失败: %v", err)
 			return "", false

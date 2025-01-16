@@ -20,12 +20,12 @@ type SpiderClient struct {
 }
 
 // NewSpiderClient 创建新的客户端实例
-func NewSpiderClient(token, host, grpcPort, apiPort, cfServiceURL string) (*SpiderClient, error) {
+func NewSpiderClient(token, host, grpcPort, apiPort, cfServiceURL string, useCF bool) (*SpiderClient, error) {
 	controller, err := NewControllerClient(token, host, grpcPort, apiPort)
 	if err != nil {
 		return nil, err
 	}
-	crawler := NewCrawler(cfServiceURL)
+	crawler := NewCrawler(cfServiceURL, useCF) // 修改函数调用
 	return &SpiderClient{
 		controller: controller,
 		crawler:    crawler,
@@ -125,17 +125,19 @@ func main() {
 		grpcPort     string
 		apiPort      string
 		cfServiceURL string
+		useCF        bool // 新增参数
 	)
 	flag.StringVar(&token, "token", "", "爬虫校验的Token")
 	flag.StringVar(&host, "host", "", "主控的IP地址")
 	flag.StringVar(&grpcPort, "grpc-port", "", "主控的gRPC通信端口")
 	flag.StringVar(&apiPort, "api-port", "", "主控的API通信端口")
 	flag.StringVar(&cfServiceURL, "cf-service", "http://127.0.0.1:8000", "CloudFlare 绕过服务地址")
+	flag.BoolVar(&useCF, "use-cf", false, "是否使用CloudFlare绕过服务") // 新增参数定义
 	flag.Parse()
 	if token == "" || host == "" || grpcPort == "" || apiPort == "" {
 		log.Fatal("请提供所有必需的参数: -token, -host, -grpc-port, -api-port")
 	}
-	client, err := NewSpiderClient(token, host, grpcPort, apiPort, cfServiceURL)
+	client, err := NewSpiderClient(token, host, grpcPort, apiPort, cfServiceURL, useCF) // 修改函数调用
 	if err != nil {
 		log.Fatalf("创建客户端失败: %v", err)
 	}

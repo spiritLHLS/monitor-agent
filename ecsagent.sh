@@ -34,6 +34,16 @@ while [ "$#" -gt 0 ]; do
         grpc_port="$2"
         shift 2
         ;;
+    -use-cf)
+        # 处理 CF 服务使用选项
+        use_cf="$2"
+        shift 2
+        ;;
+    -cf-service)
+        # 处理 CF 服务地址选项
+        cf_service="$2"
+        shift 2
+        ;;
     *)
         echo "未知的选项: $1"
         exit 1
@@ -45,6 +55,8 @@ done
 [ -z $host ] && reading "主控IPV4/域名：" host
 [ -z $api_port ] && reading "主控API端口：" api_port
 [ -z $grpc_port ] && reading "主控gRPC端口：" grpc_port
+[ -z $use_cf ] && use_cf="false"  # 默认不使用 CF 服务
+[ -z $cf_service ] && cf_service="http://127.0.0.1:8000"  # 默认 CF 服务地址
 
 rm -rf /usr/local/bin/ecsagent
 rm -rf /etc/systemd/system/ecsagent.service
@@ -54,7 +66,7 @@ chmod +x /usr/local/bin/ecsagent
 chmod +x /etc/systemd/system/ecsagent.service
 
 if [ -f "/etc/systemd/system/ecsagent.service" ]; then
-    new_exec_start="ExecStart=/usr/local/bin/ecsagent -token ${token} -host ${host} -grpc-port ${grpc_port} -api-port ${api_port}"
+    new_exec_start="ExecStart=/usr/local/bin/ecsagent -token ${token} -host ${host} -grpc-port ${grpc_port} -api-port ${api_port} -use-cf ${use_cf} -cf-service ${cf_service}"
     file_path="/etc/systemd/system/ecsagent.service"
     line_number=6
     sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
