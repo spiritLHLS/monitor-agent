@@ -130,10 +130,12 @@ def pass_cf5s(page):
             if not click_positions:
                 continue
             for (x, y) in click_positions:
-                pyautogui.moveTo(x, y, duration=0.5)
+                pyautogui.moveTo(x, y, duration=0)
                 pyautogui.click()
                 time.sleep(random.uniform(2, 3))
-                pyautogui.moveTo(x - 100, y - 100, duration=0.5)
+                safe_x = max(0, x - 100)
+                safe_y = max(0, y - 100)
+                pyautogui.moveTo(safe_x, safe_y, duration=0)
                 time.sleep(random.uniform(0, 1))
                 pyautogui.screenshot().save(screenshot_path)
                 success = detect_success_verification(screenshot_path)
