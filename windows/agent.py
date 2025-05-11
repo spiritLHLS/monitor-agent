@@ -84,7 +84,7 @@ def handle_website_crawling(task: Dict) -> Dict:
             task_start_time = time.time()
             page.get(task["url"], timeout=MAX_TASK_RUNTIME)
             time.sleep(15)
-            if detect_cf5s(page):
+            if detect_cf5s():
                 print("Detected cf5s protection, trying to bypass...")
                 if not pass_cf5s(page):
                     print("Failed to bypass cf5s")
