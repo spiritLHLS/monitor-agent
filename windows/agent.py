@@ -47,7 +47,7 @@ def get_task() -> Optional[Dict]:
         url = f"{API_BASE_URL}{GET_TASK_ENDPOINT}?flag=cf5s"
         payload = {"token": TOKEN}
         headers = {"Content-Type": "application/json"}
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, json=payload, headers=headers, timeout=6)
         response_data = response.json()
         if response.status_code == 200 and response_data.get("success"):
             return response_data.get("data")
