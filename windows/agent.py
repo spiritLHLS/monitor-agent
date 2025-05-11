@@ -52,10 +52,10 @@ def get_task() -> Optional[Dict]:
         if response.status_code == 200 and response_data.get("success"):
             return response_data.get("data")
         else:
-            print(f"获取任务失败: {response_data.get('msg')}")
+            print(f"Failed to get task: {response_data.get('msg')}")
             return None
     except Exception as e:
-        print(f"获取任务时出错: {str(e)}")
+        print(f"Error while getting task: {str(e)}")
         return None
 
 def handle_website_crawling(task: Dict) -> Dict:
@@ -78,34 +78,25 @@ def handle_website_crawling(task: Dict) -> Dict:
         try:
             if page is None:
                 page = init_browser()
-            # extra_headers = {}
-            # if task.get("extra_header"):
-            #     try:
-            #         extra_headers = json.loads(task["extra_header"])
-            #     except:
-            #         print("无法解析extra_header为JSON格式")
-            # if extra_headers:
-            #     for key, value in extra_headers.items():
-            #         page.set_header(key, value)
-            print(f"尝试加载（{attempt + 1}/{MAX_ATTEMPTS}）: {task['url']}")
+            print(f"Attempting to load ({attempt + 1}/{MAX_ATTEMPTS}): {task['url']}")
             task_start_time = time.time()
             page.get(task["url"], timeout=MAX_TASK_RUNTIME)
             time.sleep(5)
             if detect_cf5s(page):
-                print("检测到cf5s保护，尝试绕过...")
+                print("Detected cf5s protection, trying to bypass...")
                 if not pass_cf5s(page):
-                    print("处理cf5s失败")
-                    raise Exception("处理cf5s失败")
+                    print("Failed to bypass cf5s")
+                    raise Exception("Failed to bypass cf5s")
                 else:
-                    print("处理cf5s成功")
+                    print("Successfully bypassed cf5s")
             if time.time() - task_start_time > MAX_TASK_RUNTIME:
-                raise Exception("任务执行超时")
+                raise Exception("Task execution timeout")
             page_source = page.html
             result["success"] = True
             result["webdata"] = page_source
             break
         except Exception as e:
-            error_msg = f"爬取过程中出错（尝试 {attempt + 1}/{MAX_ATTEMPTS}）: {str(e)}"
+            error_msg = f"Error during crawling (attempt {attempt + 1}/{MAX_ATTEMPTS}): {str(e)}"
             print(error_msg)
             result["error_msg"] = error_msg
             if page:
@@ -116,7 +107,7 @@ def handle_website_crawling(task: Dict) -> Dict:
                 page = None
             if attempt == MAX_ATTEMPTS - 1:
                 result["success"] = False
-                result["error_msg"] = f"任务尝试{MAX_ATTEMPTS}次后失败: {str(e)}"
+                result["error_msg"] = f"Task failed after {MAX_ATTEMPTS} attempts: {str(e)}"
         finally:
             end_time = time.time()
             result["runtime"] = int(end_time - start_time)
@@ -129,34 +120,34 @@ def submit_result(result: Dict) -> bool:
         response = requests.post(url, json=result, headers=headers)
         response_data = response.json()
         if response.status_code == 200 and response_data.get("success"):
-            print(f"结果提交成功: {response_data.get('msg')}")
+            print(f"Result submitted successfully: {response_data.get('msg')}")
             return True
         else:
-            print(f"结果提交失败: {response_data.get('msg')}")
+            print(f"Failed to submit result: {response_data.get('msg')}")
             return False
     except Exception as e:
-        print(f"提交结果时出错: {str(e)}")
+        print(f"Error while submitting result: {str(e)}")
         return False
 
 def main():
     page = None
     while True:
         try:
-            print("请求新任务...")
+            print("Requesting new task...")
             task = get_task()
             if not task:
-                print("没有可用任务或获取任务失败。等待后重试...")
+                print("No available task or failed to get task. Retrying later...")
                 time.sleep(60)
                 continue
-            print(f"收到任务，URL: {task['url']}")
+            print(f"Received task, URL: {task['url']}")
             result, page = handle_website_crawling(task)
             success = submit_result(result)
             if not success:
-                print("提交结果失败。等待后继续...")
+                print("Failed to submit result. Waiting before continuing...")
                 time.sleep(10)
             time.sleep(5)
         except Exception as e:
-            print(f"主循环中出现意外错误: {str(e)}")
+            print(f"Unexpected error in main loop: {str(e)}")
             if page:
                 try:
                     page.quit()
