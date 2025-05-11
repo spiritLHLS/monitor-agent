@@ -5,7 +5,6 @@ import json
 import datetime
 from typing import Tuple, List, Dict, Optional
 from DrissionPage import ChromiumPage, ChromiumOptions
-from captcha import stupid_ocr
 from cf5s import detect_cf5s, pass_cf5s
 
 API_BASE_URL = "http://ip:port"
