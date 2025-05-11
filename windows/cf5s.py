@@ -6,6 +6,8 @@ import pyautogui
 import os
 from datetime import datetime
 
+pytesseract.pytesseract.tesseract_cmd = 'C:/Program Files/Tesseract-OCR/tesseract.exe'
+
 # https://github.com/UB-Mannheim/tesseract/wiki need to install tesseract-ocr first
 def get_click_xy(image_path):
     image = cv2.imread(image_path)
