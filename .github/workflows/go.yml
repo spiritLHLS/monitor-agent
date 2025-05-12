@@ -26,10 +26,10 @@ jobs:
       run: rm -rf ecsagent && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-w -s" -a -o ecsagent client.go
 
     - name: Archive artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ecsagent
-        path: ecsagent   # Path to the directory or file you want to archive
+        path: ecsagent
 
   deploy:
     needs: build
