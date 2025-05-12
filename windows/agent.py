@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import time
+import random
 import os
 import requests
 import json
@@ -133,9 +134,16 @@ def submit_result(result: Dict) -> bool:
         print(f"Error while submitting result: {str(e)}")
         return False
 
+def add_jitter(duration_seconds):
+    jitter = random.uniform(0, duration_seconds * 0.5)
+    return duration_seconds + jitter
+
 def main():
     page = None
+    initial_backoff = 1
+    max_backoff = 60
     while True:
+        backoff = initial_backoff
         try:
             print("Requesting new task...")
             task = get_task()
@@ -147,8 +155,11 @@ def main():
             result, page = handle_website_crawling(task)
             success = submit_result(result)
             if not success:
-                print("Failed to submit result. Waiting before continuing...")
-                time.sleep(10)
+                print("Failed to submit result. Backing off before retry submit...")
+                time.sleep(add_jitter(backoff))
+                backoff = min(max_backoff, backoff * 2)
+            else:
+                backoff = initial_backoff
             time.sleep(5)
         except Exception as e:
             print(f"Unexpected error in main loop: {str(e)}")
@@ -158,7 +169,10 @@ def main():
                 except:
                     pass
                 page = None
-            time.sleep(30)
+            wait = add_jitter(backoff)
+            print(f"Error encountered. Waiting {wait}s before retrying...")
+            time.sleep(wait)
+            backoff = min(max_backoff, backoff * 2)
 
 if __name__ == "__main__":
     main()
