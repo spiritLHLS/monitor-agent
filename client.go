@@ -157,8 +157,8 @@ func main() {
 		log.Fatalf("创建客户端失败: %v", err)
 	}
 	const (
-		initialBackoff = 1 * time.Second
-		maxBackoff     = 30 * time.Second
+		initialBackoff = 6 * time.Second
+		maxBackoff     = 60 * time.Second
 	)
 	for {
 		backoff := initialBackoff
