@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/imroc/req/v3"
 	"log"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -44,18 +43,6 @@ func (c *Crawler) getDomain(urlStr string) string {
 		return ""
 	}
 	return parsedURL.Host
-}
-
-// cleanExpiredCache 清理过期缓存
-func (c *Crawler) cleanExpiredCache() {
-	c.cacheMutex.Lock()
-	defer c.cacheMutex.Unlock()
-	now := time.Now()
-	for key, entry := range c.cookieCache {
-		if now.Sub(entry.CreatedAt) >= c.cacheExpiry {
-			delete(c.cookieCache, key)
-		}
-	}
 }
 
 // isCloudFlareChallenge 检查是否遇到CloudFlare验证
