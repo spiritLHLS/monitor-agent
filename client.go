@@ -119,6 +119,19 @@ func (c *SpiderClient) switchMode() {
 	log.Printf("切换到 %s 模式", c.controller.GetMode())
 }
 
+// 异步任务处理函数
+func handleTaskAsync(client *SpiderClient, t *pb.CrawlerTask) {
+	if err := client.HandleTask(t); err != nil {
+		log.Printf("处理任务失败: %v", err)
+	}
+}
+
+// 在指定时长上加入随机抖动，避免集群雪崩
+func addJitter(duration time.Duration) time.Duration {
+	jitter := time.Duration(rand.Int63n(int64(duration / 2)))
+	return duration + jitter
+}
+
 func main() {
 	var (
 		token        string
@@ -133,27 +146,38 @@ func main() {
 	flag.StringVar(&grpcPort, "grpc-port", "", "主控的gRPC通信端口")
 	flag.StringVar(&apiPort, "api-port", "", "主控的API通信端口")
 	flag.StringVar(&cfServiceURL, "cf-service", "http://127.0.0.1:8000", "CloudFlare 绕过服务地址")
-	flag.BoolVar(&useCF, "use-cf", false, "是否使用CloudFlare绕过服务") // 新增参数定义
+	flag.BoolVar(&useCF, "use-cf", false, "是否使用CloudFlare绕过服务")
 	flag.Parse()
 	if token == "" || host == "" || grpcPort == "" || apiPort == "" {
 		log.Fatal("请提供所有必需的参数: -token, -host, -grpc-port, -api-port")
 	}
-	client, err := NewSpiderClient(token, host, grpcPort, apiPort, cfServiceURL, useCF) // 修改函数调用
+	client, err := NewSpiderClient(token, host, grpcPort, apiPort, cfServiceURL, useCF)
 	if err != nil {
 		log.Fatalf("创建客户端失败: %v", err)
 	}
+	const (
+		initialBackoff = 1 * time.Second
+		maxBackoff     = 30 * time.Second
+	)
 	for {
-		task, err := client.GetTask()
-		if err != nil {
-			log.Printf("获取任务失败: %v", err)
-			time.Sleep(6 * time.Second)
-			continue
-		}
-		go func(t *pb.CrawlerTask) {
-			if err := client.HandleTask(t); err != nil {
-				log.Printf("处理任务失败: %v", err)
+		backoff := initialBackoff
+		// 获取任务并进行指数退避重试
+		for {
+			task, err := client.GetTask()
+			if err == nil {
+				// 成功获取任务，提交给处理并跳出重试循环
+				go handleTaskAsync(client, task)
+				break
 			}
-		}(task)
-		time.Sleep(1 * time.Second)
+			log.Printf("获取任务失败: %v，%v后重试...", err, backoff)
+			time.Sleep(addJitter(backoff))
+			// 指数增长
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
+		// 下次循环前短暂等待，防止紧密循环
+		time.Sleep(500 * time.Millisecond)
 	}
 }
