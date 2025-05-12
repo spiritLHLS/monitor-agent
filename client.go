@@ -4,6 +4,7 @@ import (
 	"agent/controller"
 	"agent/crawler"
 	pb "agent/proto"
+	"math/rand"
 	"flag"
 	"fmt"
 	"log"
