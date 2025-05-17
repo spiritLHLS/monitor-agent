@@ -49,5 +49,5 @@ jobs:
         git config --global user.name "daily-update"
         git config --global user.email "tg@spiritlhl.top"
         git add .
-        git commit -m "Add compiled artifact"
-        git push
+        git commit -m "Add compiled artifact" || true
+        git push || true
