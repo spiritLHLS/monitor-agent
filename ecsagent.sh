@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 2025.01.16
+# 2025.05.17
 _red() { echo -e "\033[31m\033[01m$@\033[0m"; }
 _green() { echo -e "\033[32m\033[01m$@\033[0m"; }
 _yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
@@ -69,8 +69,6 @@ done
 [ -z "$host" ] && reading "主控IPV4/域名：" host
 [ -z "$api_port" ] && reading "主控API端口：" api_port
 [ -z "$grpc_port" ] && reading "主控gRPC端口：" grpc_port
-[ -z "$use_cf" ] && use_cf="false"  # 默认不使用 CF 服务
-[ -z "$cf_service" ] && cf_service="http://127.0.0.1:8000"  # 默认 CF 服务地址
 
 # 检查现有服务并处理
 if check_service; then
@@ -101,7 +99,7 @@ chmod +x /etc/systemd/system/ecsagent.service
 
 # 更新服务配置
 if [ -f "/etc/systemd/system/ecsagent.service" ]; then
-    new_exec_start="ExecStart=/usr/local/bin/ecsagent -token ${token} -host ${host} -grpc-port ${grpc_port} -api-port ${api_port} -use-cf ${use_cf} -cf-service ${cf_service}"
+    new_exec_start="ExecStart=/usr/local/bin/ecsagent -token ${token} -host ${host} -grpc-port ${grpc_port} -api-port ${api_port}"
     file_path="/etc/systemd/system/ecsagent.service"
     line_number=6
     sed -i "${line_number}s|.*|${new_exec_start}|" "$file_path"
@@ -122,9 +120,4 @@ fi
 
 # 使用说明
 _blue "使用示例："
-echo "# 使用默认设置（启用 CF 服务）"
 echo "#./ecsagent.sh -token xxx -host xxx -grpc-port xxx -api-port xxx"
-echo "# 禁用 CF 服务"
-echo "#./ecsagent.sh -token xxx -host xxx -grpc-port xxx -api-port xxx -use-cf false"
-echo "# 指定自定义 CF 服务地址"
-echo "#./ecsagent.sh -token xxx -host xxx -grpc-port xxx -api-port xxx -cf-service http://custom-server:8000"
