@@ -25,7 +25,7 @@ FROM alpine:3.21
 RUN apk update && \
     apk add --no-cache \
       fontconfig \
-      ttf-noto-cjk && \
+      font-noto-cjk && \
     fc-cache -f
 
 WORKDIR /app
