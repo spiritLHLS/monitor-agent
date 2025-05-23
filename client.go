@@ -154,27 +154,27 @@ func main() {
 	}
 	const (
 		initialBackoff = 6 * time.Second
-		maxBackoff     = 60 * time.Second
+		maxBackoff     = 90 * time.Second
 	)
 	for {
 		backoff := initialBackoff
-		// 获取任务并进行指数退避重试
 		for {
 			task, err := client.GetTask()
 			if err == nil {
-				// 成功获取任务，提交给处理并跳出重试循环
 				go handleTaskAsync(client, task)
 				break
 			}
 			log.Printf("获取任务失败: %v，%v后重试...", err, backoff)
 			time.Sleep(addJitter(backoff))
-			// 指数增长
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff
+				client, err = NewSpiderClient(token, host, grpcPort, apiPort)
+				if err != nil {
+				    	log.Fatalf("创建客户端失败: %v", err)
+				}
 			}
 		}
-		// 下次循环前短暂等待，防止紧密循环
 		time.Sleep(500 * time.Millisecond)
 	}
 }
