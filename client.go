@@ -16,14 +16,18 @@ import (
 const (
 	modeGRPC = "grpc"
 	modeAPI  = "api"
-	maxConcurrentTasks = 10 // 限制并发任务数量
+	maxConcurrentTasks = 10
 )
 
 type SpiderClient struct {
 	controller *controller.ControllerClient
 	crawler    *crawler.Crawler
-	semaphore  chan struct{} // 用于控制并发数量
-	modeMutex  sync.RWMutex  // 保护模式切换的互斥锁
+	semaphore  chan struct{}
+	modeMutex  sync.RWMutex
+	token      string
+	host       string
+	grpcPort   string
+	apiPort    string
 }
 
 // NewSpiderClient 创建新的客户端实例
@@ -37,6 +41,10 @@ func NewSpiderClient(token, host, grpcPort, apiPort string) (*SpiderClient, erro
 		controller: controller,
 		crawler:    crawler,
 		semaphore:  make(chan struct{}, maxConcurrentTasks),
+		token:      token,
+		host:       host,
+		grpcPort:   grpcPort,
+		apiPort:    apiPort,
 	}, nil
 }
 
@@ -109,9 +117,18 @@ func (c *SpiderClient) checkAndSwitchToGRPC() {
 		stableTime := time.Since(c.controller.LastSuccess)
 		c.controller.ModeMutex.RUnlock()
 		if stableTime >= 5*time.Minute {
-			if err := c.controller.InitGRPCClient(); err == nil {
-				c.controller.SetMode(modeGRPC)
-				log.Printf("API模式稳定运行5分钟，成功切换回gRPC模式")
+			// 重新创建整个controller，确保token等参数正确
+			if newController, err := controller.NewControllerClient(c.token, c.host, c.grpcPort, c.apiPort); err == nil {
+				// 尝试gRPC连接
+				if err := newController.InitGRPCClient(); err == nil {
+					c.controller = newController
+					c.controller.SetMode(modeGRPC)
+					log.Printf("API模式稳定运行5分钟，成功切换回gRPC模式")
+				} else {
+					log.Printf("gRPC连接失败，继续使用API模式: %v", err)
+				}
+			} else {
+				log.Printf("重新创建controller失败: %v", err)
 			}
 		}
 	}
@@ -124,14 +141,21 @@ func (c *SpiderClient) switchMode() {
 	currentMode := c.controller.GetMode()
 	if currentMode == modeGRPC {
 		c.controller.SetMode(modeAPI)
+		log.Printf("切换到 %s 模式", modeAPI)
 	} else {
-		if err := c.controller.InitGRPCClient(); err != nil {
-			log.Printf("gRPC 客户端重新初始化失败: %v", err)
-			return
+		// 重新创建整个controller，确保所有参数正确
+		if newController, err := controller.NewControllerClient(c.token, c.host, c.grpcPort, c.apiPort); err == nil {
+			if err := newController.InitGRPCClient(); err == nil {
+				c.controller = newController
+				c.controller.SetMode(modeGRPC)
+				log.Printf("切换到 %s 模式", modeGRPC)
+			} else {
+				log.Printf("gRPC 客户端重新初始化失败，保持API模式: %v", err)
+			}
+		} else {
+			log.Printf("重新创建controller失败: %v", err)
 		}
-		c.controller.SetMode(modeGRPC)
 	}
-	log.Printf("切换到 %s 模式", c.controller.GetMode())
 }
 
 // 异步任务处理函数
@@ -169,6 +193,10 @@ func main() {
 	if token == "" || host == "" || grpcPort == "" || apiPort == "" {
 		log.Fatal("请提供所有必需的参数: -token, -host, -grpc-port, -api-port")
 	}
+	
+	log.Printf("启动参数: token=%s, host=%s, grpc-port=%s, api-port=%s", 
+		token, host, grpcPort, apiPort)
+	
 	client, err := NewSpiderClient(token, host, grpcPort, apiPort)
 	if err != nil {
 		log.Fatalf("创建客户端失败: %v", err)
@@ -192,6 +220,7 @@ func main() {
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff
+				// 重新创建整个客户端，确保参数正确
 				client, err = NewSpiderClient(token, host, grpcPort, apiPort)
 				if err != nil {
 				    	log.Fatalf("创建客户端失败: %v", err)
