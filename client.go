@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,14 +17,15 @@ import (
 const (
 	modeGRPC = "grpc"
 	modeAPI  = "api"
-	maxConcurrentTasks = 10
+	maxConcurrentTasks = 10 // 限制并发任务数量
 )
 
 type SpiderClient struct {
 	controller *controller.ControllerClient
 	crawler    *crawler.Crawler
-	semaphore  chan struct{}
-	modeMutex  sync.RWMutex
+	semaphore  chan struct{} // 用于控制并发数量
+	modeMutex  sync.RWMutex  // 保护模式切换的互斥锁
+	// 添加配置参数存储，用于重新初始化
 	token      string
 	host       string
 	grpcPort   string
@@ -41,6 +43,7 @@ func NewSpiderClient(token, host, grpcPort, apiPort string) (*SpiderClient, erro
 		controller: controller,
 		crawler:    crawler,
 		semaphore:  make(chan struct{}, maxConcurrentTasks),
+		// 存储配置参数
 		token:      token,
 		host:       host,
 		grpcPort:   grpcPort,
@@ -66,14 +69,35 @@ func (c *SpiderClient) GetTask() (*pb.CrawlerTask, error) {
 	}
 	if err != nil {
 		log.Printf("%s 模式获取任务失败: %v", mode, err)
-		c.switchMode()
+		// 只有在连接错误时才切换模式，队列为空不切换
+		if !isQueueEmptyError(err) {
+			c.switchMode()
+		}
 		return nil, err
 	}
 	return task, nil
 }
 
+// isQueueEmptyError 判断是否为队列为空的错误
+func isQueueEmptyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "队列为空") || 
+		   strings.Contains(errStr, "queue is empty") ||
+		   strings.Contains(errStr, "默认任务队列为空")
+}
+
 // HandleTask 处理任务
 func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
+	// 验证任务的基本字段
+	if task == nil {
+		return fmt.Errorf("任务为空")
+	}
+	if task.Token == "" {
+		return fmt.Errorf("任务Token为空，可能是服务端问题")
+	}
 	if task.Token != c.controller.Token {
 		return fmt.Errorf("无效的Token: 传入=%s，期望=%s", task.Token, c.controller.Token)
 	}
@@ -102,10 +126,25 @@ func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
 	}
 	if err != nil {
 		log.Printf("%s 模式处理任务失败: %v", mode, err)
-		c.switchMode()
+		// 只有在连接错误时才切换模式，业务错误不切换
+		if !isBusinessError(err) {
+			c.switchMode()
+		}
 		return err
 	}
 	return nil
+}
+
+// isBusinessError 判断是否为业务错误（不需要切换模式的错误）
+func isBusinessError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "无效的Token") || 
+		   strings.Contains(errStr, "无效的URL") ||
+		   strings.Contains(errStr, "任务为空") ||
+		   strings.Contains(errStr, "任务Token为空")
 }
 
 // checkAndSwitchToGRPC 检查是否需要切换回gRPC模式
@@ -212,7 +251,18 @@ func main() {
 		for {
 			task, err := client.GetTask()
 			if err == nil {
+				// 添加任务验证日志
+				log.Printf("获取到任务: URL=%s, Token=%s, Tag=%s", 
+					task.Url, maskToken(task.Token), task.Tag)
 				go client.handleTaskAsync(ctx, task)
+				break
+			}
+			// 如果是队列为空，减少日志频率
+			if isQueueEmptyError(err) {
+				if backoff == initialBackoff {
+					log.Printf("任务队列为空，等待新任务...")
+				}
+				time.Sleep(addJitter(initialBackoff))
 				break
 			}
 			log.Printf("获取任务失败: %v，%v后重试...", err, backoff)
@@ -229,4 +279,12 @@ func main() {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+// maskToken 遮蔽token用于日志输出
+func maskToken(token string) string {
+	if len(token) <= 4 {
+		return "****"
+	}
+	return token[:2] + "****" + token[len(token)-2:]
 }
