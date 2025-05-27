@@ -4,21 +4,26 @@ import (
 	"agent/controller"
 	"agent/crawler"
 	pb "agent/proto"
+	"context"
 	"math/rand"
 	"flag"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
 const (
 	modeGRPC = "grpc"
 	modeAPI  = "api"
+	maxConcurrentTasks = 10 // 限制并发任务数量
 )
 
 type SpiderClient struct {
 	controller *controller.ControllerClient
 	crawler    *crawler.Crawler
+	semaphore  chan struct{} // 用于控制并发数量
+	modeMutex  sync.RWMutex  // 保护模式切换的互斥锁
 }
 
 // NewSpiderClient 创建新的客户端实例
@@ -31,12 +36,15 @@ func NewSpiderClient(token, host, grpcPort, apiPort string) (*SpiderClient, erro
 	return &SpiderClient{
 		controller: controller,
 		crawler:    crawler,
+		semaphore:  make(chan struct{}, maxConcurrentTasks),
 	}, nil
 }
 
 // GetTask 获取任务
 func (c *SpiderClient) GetTask() (*pb.CrawlerTask, error) {
+	c.modeMutex.RLock()
 	mode := c.controller.GetMode()
+	c.modeMutex.RUnlock()
 	var task *pb.CrawlerTask
 	var err error
 	if mode == modeGRPC {
@@ -59,7 +67,7 @@ func (c *SpiderClient) GetTask() (*pb.CrawlerTask, error) {
 // HandleTask 处理任务
 func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
 	if task.Token != c.controller.Token {
-		return fmt.Errorf("无效的Token")
+		return fmt.Errorf("无效的Token: 传入=%s，期望=%s", task.Token, c.controller.Token)
 	}
 	if task.Url == "" || task.Tag == "" {
 		return fmt.Errorf("无效的URL或Tag")
@@ -70,7 +78,9 @@ func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	beijingTime := time.Now().In(loc)
 	formattedTime := beijingTime.Format("2006-01-02 15:04:05")
+	c.modeMutex.RLock()
 	mode := c.controller.GetMode()
+	c.modeMutex.RUnlock()
 	var err error
 	if mode == modeGRPC {
 		err = c.controller.HandleTaskGRPC(task, webData, success, runtime, formattedTime)
@@ -78,6 +88,7 @@ func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
 		err = c.controller.HandleTaskAPI(task, webData, success, runtime, formattedTime)
 		if err == nil {
 			c.controller.UpdateLastSuccess()
+			// 只在API模式成功时检查是否切换到gRPC
 			c.checkAndSwitchToGRPC()
 		}
 	}
@@ -91,11 +102,12 @@ func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
 
 // checkAndSwitchToGRPC 检查是否需要切换回gRPC模式
 func (c *SpiderClient) checkAndSwitchToGRPC() {
+	c.modeMutex.Lock()
+	defer c.modeMutex.Unlock()
 	if c.controller.GetMode() == modeAPI {
 		c.controller.ModeMutex.RLock()
 		stableTime := time.Since(c.controller.LastSuccess)
 		c.controller.ModeMutex.RUnlock()
-
 		if stableTime >= 5*time.Minute {
 			if err := c.controller.InitGRPCClient(); err == nil {
 				c.controller.SetMode(modeGRPC)
@@ -107,6 +119,8 @@ func (c *SpiderClient) checkAndSwitchToGRPC() {
 
 // switchMode 切换模式
 func (c *SpiderClient) switchMode() {
+	c.modeMutex.Lock()
+	defer c.modeMutex.Unlock()
 	currentMode := c.controller.GetMode()
 	if currentMode == modeGRPC {
 		c.controller.SetMode(modeAPI)
@@ -121,8 +135,15 @@ func (c *SpiderClient) switchMode() {
 }
 
 // 异步任务处理函数
-func handleTaskAsync(client *SpiderClient, t *pb.CrawlerTask) {
-	if err := client.HandleTask(t); err != nil {
+func (c *SpiderClient) handleTaskAsync(ctx context.Context, t *pb.CrawlerTask) {
+	// 获取信号量，控制并发数量
+	select {
+	case c.semaphore <- struct{}{}:
+		defer func() { <-c.semaphore }()
+	case <-ctx.Done():
+		return
+	}
+	if err := c.HandleTask(t); err != nil {
 		log.Printf("处理任务失败: %v", err)
 	}
 }
@@ -152,6 +173,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("创建客户端失败: %v", err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	const (
 		initialBackoff = 6 * time.Second
 		maxBackoff     = 90 * time.Second
@@ -161,7 +184,7 @@ func main() {
 		for {
 			task, err := client.GetTask()
 			if err == nil {
-				go handleTaskAsync(client, task)
+				go client.handleTaskAsync(ctx, task)
 				break
 			}
 			log.Printf("获取任务失败: %v，%v后重试...", err, backoff)
