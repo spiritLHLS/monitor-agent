@@ -46,6 +46,7 @@ func (c *Crawler) getDomain(urlStr string) string {
 
 // isCloudFlareChallenge 检查是否遇到CloudFlare验证
 func (c *Crawler) isCloudFlareChallenge(resp *req.Response) bool {
+	// 添加nil检查
 	if resp == nil {
 		return false
 	}
@@ -73,13 +74,14 @@ func (c *Crawler) FetchWebData(url string) (string, bool) {
 	startTime := time.Now()
 	// 第一次请求
 	resp, err := client.R().Get(url)
-	// 检查是否需要处理 CloudFlare 验证
-	if c.isCloudFlareChallenge(resp) {
-		log.Printf("检测到 CloudFlare 验证")
-		return "", false
-	}
+	// 先检查错误，再检查响应
 	if err != nil {
 		log.Printf("获取页面失败: %v, URL: %s", err, url)
+		return "", false
+	}
+	// 检查是否需要处理cf5s验证
+	if c.isCloudFlareChallenge(resp) {
+		log.Printf("检测到 CloudFlare 验证, URL: %s", url)
 		return "", false
 	}
 	if !resp.IsSuccessState() {
