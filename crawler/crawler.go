@@ -52,6 +52,9 @@ func (c *Crawler) isCloudFlareChallenge(resp *req.Response) bool {
 	if resp.StatusCode != 403 && resp.StatusCode != 503 {
 		return false
 	}
+	if resp.Header == nil {
+		return false
+	}
 	for key := range resp.Header {
 		if strings.Contains(strings.ToLower(key), "cf-") {
 			return true
