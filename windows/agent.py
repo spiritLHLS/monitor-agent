@@ -45,9 +45,9 @@ def init_browser():
     page = ChromiumPage(addr_or_opts=options)
     return page
 
-def get_task() -> Optional[Dict]:
+def get_task(flag: str) -> Optional[Dict]:
     try:
-        url = f"{API_BASE_URL}{GET_TASK_ENDPOINT}?flag=cf5s"
+        url = f"{API_BASE_URL}{GET_TASK_ENDPOINT}?flag={flag}"
         payload = {"token": TOKEN}
         headers = {"Content-Type": "application/json"}
         response = requests.post(url, json=payload, headers=headers, timeout=6)
@@ -55,13 +55,13 @@ def get_task() -> Optional[Dict]:
         if response.status_code == 200 and response_data.get("success"):
             return response_data.get("data")
         else:
-            print(f"Failed to get task: {response_data.get('msg')}")
+            print(f"Failed to get {flag} task: {response_data.get('msg')}")
             return None
     except Exception as e:
-        print(f"Error while getting task: {str(e)}")
+        print(f"Error while getting {flag} task: {str(e)}")
         return None
 
-def handle_website_crawling(task: Dict) -> Dict:
+def handle_website_crawling(task: Dict, task_type: str) -> Dict:
     result = {
         "token": task["token"],
         "tag": task["tag"],
@@ -84,16 +84,19 @@ def handle_website_crawling(task: Dict) -> Dict:
             print(f"Attempting to load ({attempt + 1}/{MAX_ATTEMPTS}): {task['url']}")
             task_start_time = time.time()
             page.latest_tab.get(task["url"], timeout=MAX_TASK_RUNTIME)
-            time.sleep(15)
-            if detect_cf5s():
-                print("Detected cf5s protection, trying to bypass...")
-                if not pass_cf5s(page):
-                    print("Failed to bypass cf5s")
-                    raise Exception("Failed to bypass cf5s")
-                else:
-                    page.latest_tab.get(task["url"], timeout=MAX_TASK_RUNTIME)
-                    print("Successfully bypassed cf5s")
-                    time.sleep(6)
+            if "cf5s" in task_type:
+                time.sleep(15)
+                if detect_cf5s():
+                    print("Detected cf5s protection, trying to bypass...")
+                    if not pass_cf5s(page):
+                        print("Failed to bypass cf5s")
+                        raise Exception("Failed to bypass cf5s")
+                    else:
+                        page.latest_tab.get(task["url"], timeout=MAX_TASK_RUNTIME)
+                        print("Successfully bypassed cf5s")
+                        time.sleep(6)
+            else:
+                time.sleep(20)
             if time.time() - task_start_time > MAX_TASK_RUNTIME:
                 raise Exception("Task execution timeout")
             page_source = page.html
@@ -138,29 +141,42 @@ def add_jitter(duration_seconds):
     jitter = random.uniform(0, duration_seconds * 0.5)
     return duration_seconds + jitter
 
+def process_task_type(task_type: str, page):
+    print(f"Requesting {task_type} task...")
+    task = get_task(task_type)
+    if not task:
+        print(f"No available {task_type} task or failed to get task.")
+        return page, False
+
+    print(f"Received {task_type} task, URL: {task['url']}")
+    result, page = handle_website_crawling(task, task_type)
+    success = submit_result(result)
+
+    if not success:
+        print(f"Failed to submit {task_type} result.")
+
+    return page, success
+
 def main():
     page = None
     initial_backoff = 1
     max_backoff = 60
+
     while True:
         backoff = initial_backoff
         try:
-            print("Requesting new task...")
-            task = get_task()
-            if not task:
-                print("No available task or failed to get task. Retrying later...")
+            page, cf5s_success = process_task_type("cf5s", page)
+            if cf5s_success:
+                time.sleep(5)
+
+            page, dynamic_success = process_task_type("dynamic", page)
+            if dynamic_success:
+                time.sleep(5)
+
+            if not cf5s_success and not dynamic_success:
+                print("Both task types failed. Waiting before retry...")
                 time.sleep(60)
-                continue
-            print(f"Received task, URL: {task['url']}")
-            result, page = handle_website_crawling(task)
-            success = submit_result(result)
-            if not success:
-                print("Failed to submit result. Backing off before retry submit...")
-                time.sleep(add_jitter(backoff))
-                backoff = min(max_backoff, backoff * 2)
-            else:
-                backoff = initial_backoff
-            time.sleep(5)
+
         except Exception as e:
             print(f"Unexpected error in main loop: {str(e)}")
             if page:
