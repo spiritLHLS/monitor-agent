@@ -127,7 +127,7 @@ def submit_result(result: Dict) -> bool:
         headers = {"Content-Type": "application/json"}
         response = requests.post(url, json=result, headers=headers)
         response_data = response.json()
-        if response.status_code == 200 and response_data.get("success"):
+        if response.status_code == 200 and response_data.get("code") == 0:
             print(f"Result submitted successfully: {response_data.get('msg')}")
             return True
         else:
@@ -147,36 +147,29 @@ def process_task_type(task_type: str, page):
     if not task:
         print(f"No available {task_type} task or failed to get task.")
         return page, False
-
     print(f"Received {task_type} task, URL: {task['url']}")
     result, page = handle_website_crawling(task, task_type)
     success = submit_result(result)
-
     if not success:
         print(f"Failed to submit {task_type} result.")
-
     return page, success
 
 def main():
     page = None
     initial_backoff = 1
     max_backoff = 60
-
     while True:
         backoff = initial_backoff
         try:
             page, cf5s_success = process_task_type("cf5s", page)
             if cf5s_success:
                 time.sleep(5)
-
             page, dynamic_success = process_task_type("dynamic", page)
             if dynamic_success:
                 time.sleep(5)
-
             if not cf5s_success and not dynamic_success:
                 print("Both task types failed. Waiting before retry...")
                 time.sleep(60)
-
         except Exception as e:
             print(f"Unexpected error in main loop: {str(e)}")
             if page:
