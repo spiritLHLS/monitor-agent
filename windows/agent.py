@@ -52,7 +52,7 @@ def get_task(flag: str) -> Optional[Dict]:
         headers = {"Content-Type": "application/json"}
         response = requests.post(url, json=payload, headers=headers, timeout=6)
         response_data = response.json()
-        if response.status_code == 200 and response_data.get("success"):
+        if response.status_code == 200 and response_data.get("code") == 0:
             return response_data.get("data")
         else:
             print(f"Failed to get {flag} task: {response_data.get('msg')}")
