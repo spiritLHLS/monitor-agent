@@ -23,3 +23,29 @@ wget https://raw.githubusercontent.com/spiritLHLS/monitor-agent/main/ecsagent
 chmod 777 ecsagent
 ls
 ```
+
+## Docker
+
+```bash
+# 基础使用（提示输入参数）
+docker run -it ghcr.io/spiritlhls/ecsagent:latest
+```
+
+```bash
+# 使用环境变量传递参数
+docker run -e token="your_token" \
+           -e host="your_host" \
+           -e api_port="8080" \
+           -e grpc_port="5555" \
+           -e task_flag="special" \
+           ghcr.io/spiritlhls/ecsagent:latest
+```
+
+```bash
+# 不设置task_flag（使用默认值）
+docker run -e token="your_token" \
+           -e host="your_host" \
+           -e api_port="8080" \
+           -e grpc_port="5555" \
+           ghcr.io/spiritlhls/ecsagent:latest
+```
