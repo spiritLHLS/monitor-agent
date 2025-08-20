@@ -4,7 +4,7 @@
 #   --platform linux/amd64,linux/arm64,linux/s390x \
 #   -t ecsagent:latest \
 #   .
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /app
 COPY . .
 RUN go mod download && go mod tidy
