@@ -31,6 +31,7 @@ type ControllerClient struct {
 	LastError   time.Time
 	LastSuccess time.Time
 	HttpClient  *req.Client
+	TaskFlag    string
 }
 
 // TaskFromData API 模式的任务响应结构
@@ -73,6 +74,7 @@ func NewControllerClient(token, host, grpcPort, apiPort string) (*ControllerClie
 		CurrentMode: modeGRPC,
 		HttpClient:  req.C().SetTimeout(10 * time.Second),
 		LastSuccess: time.Now(),
+		TaskFlag:    "",
 	}
 	// 初始化 gRPC 客户端
 	if err := client.InitGRPCClient(); err != nil {
@@ -80,6 +82,30 @@ func NewControllerClient(token, host, grpcPort, apiPort string) (*ControllerClie
 		client.SetMode(modeAPI)
 	}
 	return client, nil
+}
+
+// NewControllerClientWithFlag 创建带任务类型标识的主控客户端
+func NewControllerClientWithFlag(token, host, grpcPort, apiPort, taskFlag string) (*ControllerClient, error) {
+	client, err := NewControllerClient(token, host, grpcPort, apiPort)
+	if err != nil {
+		return nil, err
+	}
+	client.TaskFlag = taskFlag
+	return client, nil
+}
+
+// SetTaskFlag 设置任务类型标识
+func (c *ControllerClient) SetTaskFlag(flag string) {
+	c.ModeMutex.Lock()
+	defer c.ModeMutex.Unlock()
+	c.TaskFlag = flag
+}
+
+// GetTaskFlag 获取任务类型标识
+func (c *ControllerClient) GetTaskFlag() string {
+	c.ModeMutex.RLock()
+	defer c.ModeMutex.RUnlock()
+	return c.TaskFlag
 }
 
 // InitGRPCClient 初始化 gRPC 客户端
@@ -126,6 +152,7 @@ func (c *ControllerClient) GetTaskGRPC() (*pb.CrawlerTask, error) {
 	defer cancel()
 	request := &pb.TaskRequest{
 		Token: c.Token,
+		Flag:  c.GetTaskFlag(),
 	}
 	response, err := c.GrpcClient.GetTask(ctx, request)
 	if err != nil {
@@ -137,6 +164,10 @@ func (c *ControllerClient) GetTaskGRPC() (*pb.CrawlerTask, error) {
 // GetTaskAPI 通过 API 获取任务
 func (c *ControllerClient) GetTaskAPI() (*pb.CrawlerTask, error) {
 	url := fmt.Sprintf("http://%s:%s/spiders/getonetask", c.Host, c.ApiPort)
+	taskFlag := c.GetTaskFlag()
+	if taskFlag != "" {
+		url += "?flag=" + taskFlag
+	}
 	resp, err := c.HttpClient.R().
 		SetBody(map[string]string{"token": c.Token}).
 		SetHeader("Content-Type", "application/json").

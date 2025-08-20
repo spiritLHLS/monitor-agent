@@ -5,18 +5,18 @@ import (
 	"agent/crawler"
 	pb "agent/proto"
 	"context"
-	"math/rand"
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	modeGRPC = "grpc"
-	modeAPI  = "api"
+	modeGRPC           = "grpc"
+	modeAPI            = "api"
 	maxConcurrentTasks = 10 // 限制并发任务数量
 )
 
@@ -25,30 +25,55 @@ type SpiderClient struct {
 	crawler    *crawler.Crawler
 	semaphore  chan struct{} // 用于控制并发数量
 	modeMutex  sync.RWMutex  // 保护模式切换的互斥锁
-	// 添加配置参数存储，用于重新初始化
 	token      string
 	host       string
 	grpcPort   string
 	apiPort    string
+	taskFlag   string
 }
 
 // NewSpiderClient 创建新的客户端实例
 func NewSpiderClient(token, host, grpcPort, apiPort string) (*SpiderClient, error) {
-	controller, err := controller.NewControllerClient(token, host, grpcPort, apiPort)
+	controllerClient, err := controller.NewControllerClient(token, host, grpcPort, apiPort)
 	if err != nil {
 		return nil, err
 	}
-	crawler := crawler.NewCrawler()
+	newCrawler := crawler.NewCrawler()
 	return &SpiderClient{
-		controller: controller,
-		crawler:    crawler,
+		controller: controllerClient,
+		crawler:    newCrawler,
 		semaphore:  make(chan struct{}, maxConcurrentTasks),
-		// 存储配置参数
 		token:      token,
 		host:       host,
 		grpcPort:   grpcPort,
 		apiPort:    apiPort,
+		taskFlag:   "",
 	}, nil
+}
+
+// NewSpiderClientWithFlag 创建带任务类型的客户端实例
+func NewSpiderClientWithFlag(token, host, grpcPort, apiPort, taskFlag string) (*SpiderClient, error) {
+	controllerClientWithFlag, err := controller.NewControllerClientWithFlag(token, host, grpcPort, apiPort, taskFlag)
+	if err != nil {
+		return nil, err
+	}
+	newCrawler := crawler.NewCrawler()
+	return &SpiderClient{
+		controller: controllerClientWithFlag,
+		crawler:    newCrawler,
+		semaphore:  make(chan struct{}, maxConcurrentTasks),
+		token:      token,
+		host:       host,
+		grpcPort:   grpcPort,
+		apiPort:    apiPort,
+		taskFlag:   taskFlag,
+	}, nil
+}
+
+// SetTaskFlag 设置任务类型
+func (c *SpiderClient) SetTaskFlag(flag string) {
+	c.taskFlag = flag
+	c.controller.SetTaskFlag(flag)
 }
 
 // GetTask 获取任务
@@ -84,14 +109,15 @@ func isQueueEmptyError(err error) bool {
 		return false
 	}
 	errStr := err.Error()
-	return strings.Contains(errStr, "队列为空") || 
-		   strings.Contains(errStr, "queue is empty") ||
-		   strings.Contains(errStr, "默认任务队列为空")
+	return strings.Contains(errStr, "队列为空") ||
+		strings.Contains(errStr, "queue is empty") ||
+		strings.Contains(errStr, "默认任务队列为空") ||
+		strings.Contains(errStr, "cf5s 任务队列为空") ||
+		strings.Contains(errStr, "dynamic 任务队列为空")
 }
 
 // HandleTask 处理任务
 func (c *SpiderClient) HandleTask(task *pb.CrawlerTask) error {
-	// 验证任务的基本字段
 	if task == nil {
 		return fmt.Errorf("任务为空")
 	}
@@ -141,10 +167,10 @@ func isBusinessError(err error) bool {
 		return false
 	}
 	errStr := err.Error()
-	return strings.Contains(errStr, "无效的Token") || 
-		   strings.Contains(errStr, "无效的URL") ||
-		   strings.Contains(errStr, "任务为空") ||
-		   strings.Contains(errStr, "任务Token为空")
+	return strings.Contains(errStr, "无效的Token") ||
+		strings.Contains(errStr, "无效的URL") ||
+		strings.Contains(errStr, "任务为空") ||
+		strings.Contains(errStr, "任务Token为空")
 }
 
 // checkAndSwitchToGRPC 检查是否需要切换回gRPC模式
@@ -157,7 +183,7 @@ func (c *SpiderClient) checkAndSwitchToGRPC() {
 		c.controller.ModeMutex.RUnlock()
 		if stableTime >= 5*time.Minute {
 			// 重新创建整个controller，确保token等参数正确
-			if newController, err := controller.NewControllerClient(c.token, c.host, c.grpcPort, c.apiPort); err == nil {
+			if newController, err := controller.NewControllerClientWithFlag(c.token, c.host, c.grpcPort, c.apiPort, c.taskFlag); err == nil {
 				// 尝试gRPC连接
 				if err := newController.InitGRPCClient(); err == nil {
 					c.controller = newController
@@ -183,7 +209,7 @@ func (c *SpiderClient) switchMode() {
 		log.Printf("切换到 %s 模式", modeAPI)
 	} else {
 		// 重新创建整个controller，确保所有参数正确
-		if newController, err := controller.NewControllerClient(c.token, c.host, c.grpcPort, c.apiPort); err == nil {
+		if newController, err := controller.NewControllerClientWithFlag(c.token, c.host, c.grpcPort, c.apiPort, c.taskFlag); err == nil {
 			if err := newController.InitGRPCClient(); err == nil {
 				c.controller = newController
 				c.controller.SetMode(modeGRPC)
@@ -199,7 +225,6 @@ func (c *SpiderClient) switchMode() {
 
 // 异步任务处理函数
 func (c *SpiderClient) handleTaskAsync(ctx context.Context, t *pb.CrawlerTask) {
-	// 获取信号量，控制并发数量
 	select {
 	case c.semaphore <- struct{}{}:
 		defer func() { <-c.semaphore }()
@@ -219,24 +244,30 @@ func addJitter(duration time.Duration) time.Duration {
 
 func main() {
 	var (
-		token        string
-		host         string
-		grpcPort     string
-		apiPort      string
+		token    string
+		host     string
+		grpcPort string
+		apiPort  string
+		taskFlag string
 	)
 	flag.StringVar(&token, "token", "", "爬虫校验的Token")
 	flag.StringVar(&host, "host", "", "主控的IP地址")
 	flag.StringVar(&grpcPort, "grpc-port", "", "主控的gRPC通信端口")
 	flag.StringVar(&apiPort, "api-port", "", "主控的API通信端口")
+	flag.StringVar(&taskFlag, "task-flag", "", "任务类型标识 (可选: cf5s, dynamic, 默认为空)")
 	flag.Parse()
 	if token == "" || host == "" || grpcPort == "" || apiPort == "" {
 		log.Fatal("请提供所有必需的参数: -token, -host, -grpc-port, -api-port")
 	}
-	
-	log.Printf("启动参数: token=%s, host=%s, grpc-port=%s, api-port=%s", 
-		token, host, grpcPort, apiPort)
-	
-	client, err := NewSpiderClient(token, host, grpcPort, apiPort)
+	log.Printf("启动参数: token=%s, host=%s, grpc-port=%s, api-port=%s, task-flag=%s",
+		maskToken(token), host, grpcPort, apiPort, taskFlag)
+	var client *SpiderClient
+	var err error
+	if taskFlag != "" {
+		client, err = NewSpiderClientWithFlag(token, host, grpcPort, apiPort, taskFlag)
+	} else {
+		client, err = NewSpiderClient(token, host, grpcPort, apiPort)
+	}
 	if err != nil {
 		log.Fatalf("创建客户端失败: %v", err)
 	}
@@ -252,15 +283,19 @@ func main() {
 			task, err := client.GetTask()
 			if err == nil {
 				// 添加任务验证日志
-				log.Printf("获取到任务: URL=%s, Token=%s, Tag=%s", 
-					task.Url, maskToken(task.Token), task.Tag)
+				log.Printf("获取到任务: URL=%s, Token=%s, Tag=%s, BillingType=%s, ReqMethod=%s",
+					task.Url, maskToken(task.Token), task.Tag, task.BillingType, task.ReqMethod)
 				go client.handleTaskAsync(ctx, task)
 				break
 			}
 			// 如果是队列为空，减少日志频率
 			if isQueueEmptyError(err) {
 				if backoff == initialBackoff {
-					log.Printf("任务队列为空，等待新任务...")
+					if taskFlag != "" {
+						log.Printf("%s 任务队列为空，等待新任务...", taskFlag)
+					} else {
+						log.Printf("任务队列为空，等待新任务...")
+					}
 				}
 				time.Sleep(addJitter(initialBackoff))
 				break
@@ -270,10 +305,13 @@ func main() {
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff
-				// 重新创建整个客户端，确保参数正确
-				client, err = NewSpiderClient(token, host, grpcPort, apiPort)
+				if taskFlag != "" {
+					client, err = NewSpiderClientWithFlag(token, host, grpcPort, apiPort, taskFlag)
+				} else {
+					client, err = NewSpiderClient(token, host, grpcPort, apiPort)
+				}
 				if err != nil {
-				    	log.Fatalf("创建客户端失败: %v", err)
+					log.Fatalf("创建客户端失败: %v", err)
 				}
 			}
 		}

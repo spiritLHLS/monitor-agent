@@ -13,6 +13,7 @@ service SpiderService {
 
 message TaskRequest {
   string token = 1;
+  string flag = 2;
 }
 
 message CrawlerTask {
@@ -39,8 +40,8 @@ message CrawlerResult {
 }
 
 message HandleResponse {
-  string message = 1;
-  bool success = 2;
+  bool success = 1;
+  string message = 2;
 }
 
 message ControlRequest {
