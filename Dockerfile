@@ -4,17 +4,19 @@
 #   --platform linux/amd64,linux/arm64,linux/s390x \
 #   -t ecsagent:latest \
 #   .
-FROM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /app
 COPY . .
 RUN go mod download && go mod tidy
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 \
     GOOS=${TARGETOS} \
     GOARCH=${TARGETARCH} \
     go build -ldflags="-w -s" -a -o ecsagent client.go
-FROM alpine:3.21
+FROM --platform=$TARGETPLATFORM alpine:3.23
 RUN apk update && \
     apk add --no-cache \
       fontconfig \
