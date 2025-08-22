@@ -32,6 +32,7 @@ docker run -it --name ecsagent ghcr.io/spiritlhls/ecsagent:latest
 
 ```bash
 docker run -d --name ecsagent \
+           --pull always \
            -e token="your_token" \
            -e host="your_host" \
            -e api_port="8080" \
@@ -42,6 +43,7 @@ docker run -d --name ecsagent \
 
 ```bash
 docker run -d --name ecsagent \
+           --pull always \
            -e token="your_token" \
            -e host="your_host" \
            -e api_port="8080" \
