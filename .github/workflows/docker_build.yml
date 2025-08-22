@@ -50,6 +50,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
           echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+          
           echo "Version: $VERSION"
           echo "Build Date: $BUILD_DATE"
       
@@ -82,8 +83,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            BUILDPLATFORM=${{ runner.arch }}
+          # Docker Buildx 会自动设置这些构建参数，无需手动指定
       
       - name: Create GitHub Release
         if: ${{ inputs.release == true && startsWith(github.ref, 'refs/tags/') }}

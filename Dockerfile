@@ -4,9 +4,9 @@
 #   --platform linux/amd64,linux/arm64,linux/s390x \
 #   -t ecsagent:latest \
 #   .
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
-ARG TARGETPLATFORM
 ARG BUILDPLATFORM
+ARG TARGETPLATFORM
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 WORKDIR /app
