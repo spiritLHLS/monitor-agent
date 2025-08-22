@@ -83,7 +83,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # Docker Buildx 会自动设置这些构建参数，无需手动指定
       
       - name: Create GitHub Release
         if: ${{ inputs.release == true && startsWith(github.ref, 'refs/tags/') }}
