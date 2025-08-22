@@ -8,6 +8,9 @@ on:
         required: false
         type: boolean
         default: true
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build-and-publish:
@@ -15,38 +18,41 @@ jobs:
     permissions:
       contents: write
       packages: write
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
-
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
+      
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
+      
       - name: Get version and build date
         id: git-version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          if [[ "$VERSION" == "$GITHUB_REF" ]]; then
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
+          else
             VERSION=$(echo ${{ github.sha }} | cut -c1-7)
           fi
-          # Get current date in format YYYYMMDD-HHMMSS
           BUILD_DATE=$(date +'%Y%m%d-%H%M%S')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "BUILD_DATE=$BUILD_DATE" >> $GITHUB_ENV
           echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
-
+          echo "Version: $VERSION"
+          echo "Build Date: $BUILD_DATE"
+      
       - name: Prepare metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -57,8 +63,15 @@ jobs:
             type=raw,value=latest
             type=raw,value=${{ steps.git-version.outputs.build_date }}
             type=raw,value=${{ steps.git-version.outputs.version }}
-            type=sha
-
+            type=sha,prefix={{branch}}-
+            type=ref,event=tag
+          labels: |
+            org.opencontainers.image.title=ECS Agent
+            org.opencontainers.image.description=ECS Agent for multi-architecture deployment
+            org.opencontainers.image.version=${{ steps.git-version.outputs.version }}
+            org.opencontainers.image.created=${{ steps.git-version.outputs.build_date }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+      
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -69,17 +82,36 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
+          build-args: |
+            BUILDPLATFORM=${{ runner.arch }}
+      
       - name: Create GitHub Release
-        if: ${{ inputs.release == true }}
+        if: ${{ inputs.release == true && startsWith(github.ref, 'refs/tags/') }}
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.git-version.outputs.build_date }}
-          name: Release v${{ steps.git-version.outputs.build_date }}
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
             LICENSE
             README.md
+          body: |
+            ## Docker Images
+            
+            Multi-architecture Docker images are available:
+            - `ghcr.io/${{ github.repository_owner }}/ecsagent:latest`
+            - `ghcr.io/${{ github.repository_owner }}/ecsagent:${{ steps.git-version.outputs.version }}`
+            - `ghcr.io/${{ github.repository_owner }}/ecsagent:${{ steps.git-version.outputs.build_date }}`
+            
+            ### Supported Architectures
+            - linux/amd64
+            - linux/arm64
+            - linux/s390x
+            
+            ### Usage
+            ```bash
+            docker run -it --rm ghcr.io/${{ github.repository_owner }}/ecsagent:latest
+            ```
